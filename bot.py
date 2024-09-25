@@ -71,6 +71,9 @@ async def handle_folder_selection(update: Update, context) -> None:
     photo_file_id = context.user_data.get('photo')
 
     if photo_file_id:
+        # Отправляем сообщение о начале загрузки
+        await query.edit_message_text(text='Начинаю загрузку фото...')
+
         # Получаем информацию о файле
         photo_file = await context.bot.get_file(photo_file_id)
 
@@ -96,9 +99,6 @@ async def handle_folder_selection(update: Update, context) -> None:
         # Путь к сохраненному файлу
         photo_file_path = os.path.join(os.getcwd(), original_file_name)
 
-        # Отправляем сообщение о начале загрузки
-        await query.edit_message_text(text='Начинаю загрузку фото...')
-
         # Загружаем фото
         await photo_file.download_to_drive(photo_file_path)
 
@@ -119,7 +119,6 @@ def main() -> None:
     application = Application.builder().token(API_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    # application.add_handler(MessageHandler(filters.PHOTO & filters.User(ALLOWED_USERS), handle_photo))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(CallbackQueryHandler(handle_folder_selection))
 
