@@ -1,0 +1,13 @@
+# .dockerignore
+
+# Exclude virtual environment
+.venv
+
+# Exclude other unnecessary files
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.env
