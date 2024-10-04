@@ -191,8 +191,6 @@ def main() -> None:
     loop = asyncio.get_event_loop()
     loop.create_task(web_server())
     application.run_polling()
-    application.idle()
-
 
 if __name__ == '__main__':
     main()
