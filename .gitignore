@@ -350,4 +350,5 @@ fabric.properties
 *cred_key.txt
 *jw_gdrive.json
 *ver_01
-
+*ver_02
+*config.py
