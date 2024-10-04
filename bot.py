@@ -7,9 +7,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, Application, CommandHandler, ContextTypes, MessageHandler, CallbackContext, \
     CallbackQueryHandler, filters
 from gdrive_service import GoogleDriveService
-
 from config import API_TOKEN, GOOGLE_DRIVE_CREDENTIALS_FILE, ALLOWED_USERS, MAX_FILE_SIZE_MB, EXCLUDED_FOLDERS, \
     USE_ALLOWED_USERS, STATISTICS_FOLDER, STATISTICS_FILE
+import asyncio
+from aiohttp import web
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -170,6 +171,16 @@ async def handle_folder_selection(update: Update, context) -> None:
     await context.bot.send_message(chat_id=query.message.chat_id, text=f'Всего загружено: {len(photos)}')
     del context.user_data['photos']
 
+async def web_server():
+    app = web.Application()
+    app.router.add_get("/", lambda request: web.Response(text="Bot is running"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Web server started on port {port}")
+
 
 def main() -> None:
     application = Application.builder().token(API_TOKEN).build()
@@ -177,6 +188,8 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_photo))
     application.add_handler(CallbackQueryHandler(handle_folder_selection))
 
+    loop = asyncio.get_event_loop()
+    loop.create_task(web_server())
     application.run_polling()
     application.idle()
 
