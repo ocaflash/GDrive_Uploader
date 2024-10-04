@@ -1,23 +1,30 @@
 import datetime
 import os
 import logging
+from datetime import timedelta  # Импортируем timedelta
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+from telegram.ext import Updater, Application, CommandHandler, ContextTypes, MessageHandler, CallbackContext, \
+    CallbackQueryHandler, filters
 from gdrive_service import GoogleDriveService
 
 from config import API_TOKEN, GOOGLE_DRIVE_CREDENTIALS_FILE, ALLOWED_USERS, MAX_FILE_SIZE_MB, EXCLUDED_FOLDERS, \
     USE_ALLOWED_USERS, STATISTICS_FOLDER, STATISTICS_FILE
-
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 drive_service = GoogleDriveService(GOOGLE_DRIVE_CREDENTIALS_FILE)
 
+welcome_message = (
+    "Привет! Я бот для работы с Google Drive.\n"
+    "Пришли фото и я отправлю его в папку выбранного собрания."
+)
 
-async def start(update: Update, context) -> None:
-    logging.info("Команда /start вызвана.")
-    await update.message.reply_text('Привет! Отправь мне фото для загрузки.')
+
+# Функция для обработки команды /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
 
 async def send_folder_buttons(update: Update, context) -> None:
@@ -115,10 +122,12 @@ async def handle_folder_selection(update: Update, context) -> None:
         await query.edit_message_text(text='Произошла ошибка при выборе папки.')
         return
 
-    date_folder_name = datetime.datetime.now().strftime("%d-%m-%Y")
-    date_folder_id = drive_service.find_folder_id_by_name(date_folder_name, folder_id)
+    date_folder_name = datetime.datetime.now() + timedelta(hours=3)  # Добавляем 3 часа
+    date_folder_name_str = date_folder_name.strftime("%d-%m-%Y")
+
+    date_folder_id = drive_service.find_folder_id_by_name(date_folder_name_str, folder_id)
     if date_folder_id is None:
-        date_folder_id = drive_service.create_folder(folder_id, date_folder_name)
+        date_folder_id = drive_service.create_folder(folder_id, date_folder_name_str)
 
     uploaded_files = []
     for i, (photo_file_id, original_file_name) in enumerate(photos, start=1):
@@ -145,15 +154,15 @@ async def handle_folder_selection(update: Update, context) -> None:
     stats_file_id = drive_service.create_or_get_statistics_sheet(stats_folder_id, STATISTICS_FILE)
     drive_service.add_statistics_entry(
         stats_file_id,
-        datetime.datetime.now(),
+        datetime.datetime.now() + datetime.timedelta(hours=3),
         query.from_user.id,
-        f"{folder_name}/{date_folder_name}",
+        f"{folder_name}/{date_folder_name_str}",
         uploaded_files
     )
 
     uploaded_files_str = "\n".join(uploaded_files)
     success_message = (f'Все фото загружены успешно!\n'
-                       f'Папка: {folder_name}/{date_folder_name}\n'
+                       f'Папка: {folder_name}/{date_folder_name_str}\n'
                        f'Количество фото: {len(photos)}\n'
                        f'Загруженные файлы:\n{uploaded_files_str}')
 
@@ -161,14 +170,16 @@ async def handle_folder_selection(update: Update, context) -> None:
     await context.bot.send_message(chat_id=query.message.chat_id, text=f'Всего загружено: {len(photos)}')
     del context.user_data['photos']
 
+
 def main() -> None:
     application = Application.builder().token(API_TOKEN).build()
-
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_photo))
     application.add_handler(CallbackQueryHandler(handle_folder_selection))
 
     application.run_polling()
+    application.idle()
+
 
 if __name__ == '__main__':
     main()
