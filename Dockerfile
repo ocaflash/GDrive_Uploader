@@ -12,7 +12,6 @@ COPY pyproject.toml poetry.lock* ./
 
 # Install dependencies
 RUN poetry install --no-dev --no-root
-#RUN pip install python-telegram-bot -U
 
 # Copy the rest of your application code
 COPY . .

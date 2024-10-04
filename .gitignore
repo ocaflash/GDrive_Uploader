@@ -346,9 +346,5 @@ fabric.properties
 
 # idea folder, uncomment if you don't need it
 .idea
-
-*cred_key.txt
+.env
 *jw_gdrive.json
-*ver_01
-*ver_02
-*config.py
