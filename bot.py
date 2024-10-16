@@ -9,8 +9,7 @@ from telegram.ext import Updater, Application, CommandHandler, ContextTypes, Mes
 from gdrive_service import GoogleDriveService
 from config import API_TOKEN, GOOGLE_DRIVE_CREDENTIALS_FILE, ALLOWED_USERS, MAX_FILE_SIZE_MB, EXCLUDED_FOLDERS, \
     USE_ALLOWED_USERS, STATISTICS_FOLDER, STATISTICS_FILE
-import asyncio
-from aiohttp import web
+
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -18,7 +17,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 drive_service = GoogleDriveService(GOOGLE_DRIVE_CREDENTIALS_FILE)
 
 welcome_message = (
-    "Привет! Я бот для работы с Google Drive.\n"
+    "Привет!\nЯ бот для работы с Google Drive.\n"
     "Пришли фото и я отправлю его в папку выбранного собрания."
 )
 
@@ -101,7 +100,7 @@ async def handle_folder_selection(update: Update, context) -> None:
 
     # Немедленно скрываем кнопки
     await query.edit_message_reply_markup(reply_markup=None)
-    await query.edit_message_text(text='Начинаю загрузку фото...')
+    await query.edit_message_text(text='Загружаю фото...')
 
     photos = context.user_data.get('photos', [])
 
@@ -168,18 +167,8 @@ async def handle_folder_selection(update: Update, context) -> None:
                        f'Загруженные файлы:\n{uploaded_files_str}')
 
     await query.edit_message_text(text=success_message)
-    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Всего загружено: {len(photos)}')
+    # await context.bot.send_message(chat_id=query.message.chat_id, text=f'Всего загружено: {len(photos)}')
     del context.user_data['photos']
-
-async def web_server():
-    app = web.Application()
-    app.router.add_get("/", lambda request: web.Response(text="Bot is running"))
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"Web server started on port {port}")
 
 
 def main() -> None:
@@ -188,8 +177,6 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_photo))
     application.add_handler(CallbackQueryHandler(handle_folder_selection))
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(web_server())
     application.run_polling()
 
 if __name__ == '__main__':

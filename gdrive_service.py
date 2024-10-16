@@ -8,7 +8,6 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 class GoogleDriveService:
     def __init__(self, credentials_file):
         self.creds = service_account.Credentials.from_service_account_file(credentials_file)
@@ -43,7 +42,6 @@ class GoogleDriveService:
             'parents': [parent_id]
         }
 
-        # Проверяем, существует ли файл с таким именем
         existing_file = self.drive_service.files().list(
             q=f"name='{file_name}' and '{parent_id}' in parents",
             fields="files(id)"
@@ -52,13 +50,11 @@ class GoogleDriveService:
         media = MediaFileUpload(file_path, resumable=True)
 
         if existing_file:
-            # Если файл существует, обновляем его
             file = self.drive_service.files().update(
                 fileId=existing_file[0]['id'],
                 media_body=media
             ).execute()
         else:
-            # Если файла нет, создаем новый
             file = self.drive_service.files().create(
                 body=file_metadata,
                 media_body=media,
@@ -88,11 +84,9 @@ class GoogleDriveService:
             return None
 
     def create_or_get_statistics_sheet(self, folder_id, file_name):
-        # Проверяем, существует ли файл
         file_id = self.find_file_id_by_name(file_name, folder_id)
 
         if not file_id:
-            # Если файл не существует, создаем новый
             file_metadata = {
                 'name': file_name,
                 'parents': [folder_id],
@@ -101,7 +95,6 @@ class GoogleDriveService:
             file = self.drive_service.files().create(body=file_metadata, fields='id').execute()
             file_id = file.get('id')
 
-            # Инициализируем заголовки
             self.sheets_service.spreadsheets().values().update(
                 spreadsheetId=file_id,
                 range='A1:E1',
@@ -152,3 +145,26 @@ class GoogleDriveService:
             return files[0]['id']
         else:
             return None
+
+    def delete_folder_contents(self, folder_id):
+        try:
+            # Get all files and folders in the specified folder
+            results = self.drive_service.files().list(
+                q=f"'{folder_id}' in parents",
+                fields="files(id, name, mimeType)"
+            ).execute()
+            items = results.get('files', [])
+
+            for item in items:
+                if item['mimeType'] == 'application/vnd.google-apps.folder':
+                    # Recursively delete contents of subfolders
+                    self.delete_folder_contents(item['id'])
+
+                # Delete the item
+                self.drive_service.files().delete(fileId=item['id']).execute()
+                logger.info(f"Deleted item: {item['name']}")
+
+            return True
+        except HttpError as error:
+            logger.error(f"An error occurred while deleting folder contents: {error}")
+            return False
