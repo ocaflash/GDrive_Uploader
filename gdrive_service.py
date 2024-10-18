@@ -4,13 +4,17 @@ from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 import os
 import logging
+from google.auth.transport.requests import Request
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class GoogleDriveService:
     def __init__(self, credentials_file):
-        self.creds = service_account.Credentials.from_service_account_file(credentials_file)
+        self.creds = service_account.Credentials.from_service_account_file(
+            credentials_file,
+            scopes=['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
+        )
         self.drive_service = build('drive', 'v3', credentials=self.creds)
         self.sheets_service = build('sheets', 'v4', credentials=self.creds)
 
@@ -122,13 +126,38 @@ class GoogleDriveService:
         }
 
         logger.info(f"Полученные данные: {body}")
-        self.sheets_service.spreadsheets().values().append(
-            spreadsheetId=sheet_id,
-            range='A1',
-            valueInputOption='RAW',
-            insertDataOption='INSERT_ROWS',
-            body=body
-        ).execute()
+
+        try:
+            self.sheets_service.spreadsheets().values().append(
+                spreadsheetId=sheet_id,
+                range='A1',
+                valueInputOption='RAW',
+                insertDataOption='INSERT_ROWS',
+                body=body
+            ).execute()
+            logger.info("Статистика успешно добавлена")
+        except HttpError as error:
+            logger.error(f"Ошибка при добавлении статистики: {error}")
+            if error.resp.status == 401:
+                # Попытка обновить учетные данные
+                self.refresh_credentials()
+                # Повторная попытка добавления статистики
+                self.sheets_service.spreadsheets().values().append(
+                    spreadsheetId=sheet_id,
+                    range='A1',
+                    valueInputOption='RAW',
+                    insertDataOption='INSERT_ROWS',
+                    body=body
+                ).execute()
+                logger.info("Статистика успешно добавлена после обновления учетных данных")
+            else:
+                raise
+
+    def refresh_credentials(self):
+        logger.info("Обновление учетных данных")
+        self.creds.refresh(Request())
+        self.drive_service = build('drive', 'v3', credentials=self.creds)
+        self.sheets_service = build('sheets', 'v4', credentials=self.creds)
 
     def find_file_id_by_name(self, file_name, parent_id=None):
         query = f"name='{file_name}'"
@@ -168,3 +197,4 @@ class GoogleDriveService:
         except HttpError as error:
             logger.error(f"An error occurred while deleting folder contents: {error}")
             return False
+
