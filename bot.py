@@ -1,8 +1,9 @@
 import datetime
 import os
 import logging
-from datetime import timedelta  # Импортируем timedelta
-
+import asyncio
+from datetime import timedelta
+from telegram.error import NetworkError, TimedOut
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, Application, CommandHandler, ContextTypes, MessageHandler, CallbackContext, \
     CallbackQueryHandler, filters
@@ -170,6 +171,22 @@ async def handle_folder_selection(update: Update, context) -> None:
     # await context.bot.send_message(chat_id=query.message.chat_id, text=f'Всего загружено: {len(photos)}')
     del context.user_data['photos']
 
+async def error_handler(update, context):
+    """Log the error and send a telegram message to notify the developer."""
+    logging.error(msg="Exception while handling an update:", exc_info=context.error)
+
+    if isinstance(context.error, NetworkError):
+        # Implement exponential backoff
+        for i in range(1, 4):  # Try 3 times
+            try:
+                await asyncio.sleep(2 ** i)  # Wait 2, 4, 8 seconds
+                await update.message.reply_text('Извините, произошла ошибка сети. Пробуем переподключиться...')
+                return
+            except Exception as e:
+                logging.error(f"Failed to send error message, attempt {i}: {e}")
+
+    # For any other errors, just log them
+    logging.error(msg="Update caused error", exc_info=context.error)
 
 def main() -> None:
     application = Application.builder().token(API_TOKEN).build()
@@ -177,7 +194,9 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_photo))
     application.add_handler(CallbackQueryHandler(handle_folder_selection))
 
-    application.run_polling()
+    application.add_error_handler(error_handler)
+    application.run_polling(poll_interval=1, timeout=20, drop_pending_updates=True)
+
 
 if __name__ == '__main__':
     main()
