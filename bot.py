@@ -1,30 +1,26 @@
 import datetime
 import os
 import logging
-import asyncio
 from datetime import timedelta
-from telegram.error import NetworkError, TimedOut
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, Application, CommandHandler, ContextTypes, MessageHandler, CallbackContext, \
-    CallbackQueryHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, CallbackQueryHandler, filters
 from gdrive_service import GoogleDriveService
 from config import API_TOKEN, GOOGLE_DRIVE_CREDENTIALS_FILE, ALLOWED_USERS, MAX_FILE_SIZE_MB, EXCLUDED_FOLDERS, \
     USE_ALLOWED_USERS, STATISTICS_FOLDER, STATISTICS_FILE
 
-
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 drive_service = GoogleDriveService(GOOGLE_DRIVE_CREDENTIALS_FILE)
 
 welcome_message = (
     "Привет!\nЯ бот для работы с Google Drive.\n"
-    "Пришли фото и я отправлю его в папку выбранного собрания."
+    "Пришли фото, и я отправлю их в папку выбранного собрания."
 )
 
-
-# Функция для обработки команды /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context) -> None:
     await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
 
@@ -39,12 +35,14 @@ async def send_folder_buttons(update: Update, context) -> None:
 
     keyboard = []
     row = []
+
     for name, folder_id in folders.items():
         row.append(InlineKeyboardButton(name, callback_data=folder_id))
         if len(row) == 2:
             keyboard.append(row)
             row = []
-    if row:
+
+    if row:  # Если осталась одна кнопка после последней итерации
         keyboard.append(row)
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -53,12 +51,10 @@ async def send_folder_buttons(update: Update, context) -> None:
 
 async def handle_photo(update: Update, context) -> None:
     try:
-        logging.info("Получено фото от пользователя.")
-        user_id = update.message.from_user.id
-        logging.info(f"ID пользователя: {user_id}")
+        logger.info(f"Получено фото от пользователя {update.message.from_user.id}.")
 
-        if USE_ALLOWED_USERS and user_id not in ALLOWED_USERS:
-            logging.warning(f"Пользователь {user_id} не имеет прав для загрузки файлов.")
+        if USE_ALLOWED_USERS and update.message.from_user.id not in ALLOWED_USERS:
+            logger.warning(f"Пользователь {update.message.from_user.id} не имеет прав для загрузки файлов.")
             await update.message.reply_text('У вас нет прав для загрузки файлов.')
             return
 
@@ -79,27 +75,32 @@ async def handle_photo(update: Update, context) -> None:
             if 'photos' not in context.user_data:
                 context.user_data['photos'] = []
 
-            file_obj = await context.bot.get_file(file_id)
-            file_name = update.message.document.file_name if update.message.document else f"photo_{len(context.user_data['photos']) + 1}.jpg"
+            if update.message.document:
+                file_name = update.message.document.file_name
+            else:
+                file_number = len(context.user_data['photos']) + 1
+                file_name = f"photo_{file_number}.jpg"
 
             context.user_data['photos'].append((file_id, file_name))
+            logger.info(f"Добавлено фото: {file_name}")
 
-            if len(context.user_data['photos']) == 1:
+            # Проверяем, нужно ли показывать кнопки выбора папки
+            current_time = datetime.datetime.now()
+            if 'last_message_time' not in context.user_data or (current_time - context.user_data['last_message_time']).total_seconds() > 5:
+                context.user_data['last_message_time'] = current_time
                 await send_folder_buttons(update, context)
         else:
-            logging.error("Ошибка: не удалось получить фото.")
+            logger.error("Ошибка: не удалось получить фото.")
             await update.message.reply_text('Ошибка: фото не найдено или загруженный файл не является изображением.')
 
     except Exception as e:
-        logging.error(f"Ошибка в handle_photo: {e}")
-        await update.message.reply_text('Произошла ошибка при обработке фото.')
-
-
+        logger.error(f"Ошибка в handle_photo: {e}")
+        await update.message.reply_text('Произошла ошибка при обработке фото. Пожалуйста, попробуйте еще раз.')
 async def handle_folder_selection(update: Update, context) -> None:
     query = update.callback_query
     await query.answer()
 
-    # Немедленно скрываем кнопки
+    # Скрываем кнопки
     await query.edit_message_reply_markup(reply_markup=None)
     await query.edit_message_text(text='Загружаю фото...')
 
@@ -119,11 +120,11 @@ async def handle_folder_selection(update: Update, context) -> None:
         await query.edit_message_text(text='Ошибка: Выбранная папка не найдена.')
         return
     except Exception as e:
-        logging.error(f"Ошибка при получении имени папки: {e}")
+        logger.error(f"Ошибка при получении имени папки: {e}")
         await query.edit_message_text(text='Произошла ошибка при выборе папки.')
         return
 
-    date_folder_name = datetime.datetime.now() + timedelta(hours=3)  # Добавляем 3 часа
+    date_folder_name = datetime.datetime.now() + timedelta(hours=3)
     date_folder_name_str = date_folder_name.strftime("%d-%m-%Y")
 
     date_folder_id = drive_service.find_folder_id_by_name(date_folder_name_str, folder_id)
@@ -131,20 +132,20 @@ async def handle_folder_selection(update: Update, context) -> None:
         date_folder_id = drive_service.create_folder(folder_id, date_folder_name_str)
 
     uploaded_files = []
-    for i, (photo_file_id, original_file_name) in enumerate(photos, start=1):
+    for photo_file_id, file_name in photos:
         photo_file = await context.bot.get_file(photo_file_id)
-        photo_file_path = os.path.join(os.getcwd(), original_file_name)
+        photo_file_path = os.path.join(os.getcwd(), file_name)
 
         await photo_file.download_to_drive(photo_file_path)
 
         try:
-            logging.info(f"Загрузка файла {original_file_name} в Google Drive...")
-            drive_service.upload_file(photo_file_path, date_folder_id, original_file_name)
-            uploaded_files.append(original_file_name)
+            logger.info(f"Загрузка файла {file_name} в Google Drive...")
+            drive_service.upload_file(photo_file_path, date_folder_id, file_name)
+            uploaded_files.append(file_name)
             os.remove(photo_file_path)
         except Exception as e:
-            logging.error(f"Ошибка при загрузке файла {original_file_name}: {e}")
-            await query.edit_message_text(text=f'Ошибка при загрузке фото {original_file_name}.')
+            logger.error(f"Ошибка при загрузке файла {file_name}: {e}")
+            await query.edit_message_text(text=f'Ошибка при загрузке фото {file_name}.')
             return
 
     # Добавляем запись в статистику
@@ -155,7 +156,7 @@ async def handle_folder_selection(update: Update, context) -> None:
     stats_file_id = drive_service.create_or_get_statistics_sheet(stats_folder_id, STATISTICS_FILE)
     drive_service.add_statistics_entry(
         stats_file_id,
-        datetime.datetime.now() + datetime.timedelta(hours=3),
+        datetime.datetime.now() + datetime.timedelta(hours=0),
         query.from_user.id,
         f"{folder_name}/{date_folder_name_str}",
         uploaded_files
@@ -168,25 +169,9 @@ async def handle_folder_selection(update: Update, context) -> None:
                        f'Загруженные файлы:\n{uploaded_files_str}')
 
     await query.edit_message_text(text=success_message)
-    # await context.bot.send_message(chat_id=query.message.chat_id, text=f'Всего загружено: {len(photos)}')
-    del context.user_data['photos']
 
-async def error_handler(update, context):
-    """Log the error and send a telegram message to notify the developer."""
-    logging.error(msg="Exception while handling an update:", exc_info=context.error)
-
-    if isinstance(context.error, NetworkError):
-        # Implement exponential backoff
-        for i in range(1, 4):  # Try 3 times
-            try:
-                await asyncio.sleep(2 ** i)  # Wait 2, 4, 8 seconds
-                await update.message.reply_text('Извините, произошла ошибка сети. Пробуем переподключиться...')
-                return
-            except Exception as e:
-                logging.error(f"Failed to send error message, attempt {i}: {e}")
-
-    # For any other errors, just log them
-    logging.error(msg="Update caused error", exc_info=context.error)
+    # Очищаем список фотографий после успешной загрузки
+    context.user_data['photos'] = []
 
 def main() -> None:
     application = Application.builder().token(API_TOKEN).build()
@@ -194,9 +179,7 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_photo))
     application.add_handler(CallbackQueryHandler(handle_folder_selection))
 
-    application.add_error_handler(error_handler)
-    application.run_polling(poll_interval=1, timeout=20, drop_pending_updates=True)
-
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
