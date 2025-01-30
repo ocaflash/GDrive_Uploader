@@ -42,7 +42,7 @@ This Telegram bot allows users to upload photos directly to selected folders on 
    ```
    pip install --upgrade pip
    pip install poetry
-   poetry install --no-dev --no-root
+   poetry install --no-root
    ```
 
 ## Configuration
