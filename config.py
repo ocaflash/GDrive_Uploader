@@ -13,7 +13,6 @@ USE_ALLOWED_USERS = os.getenv('USE_ALLOWED_USERS', 'False').lower() == 'true'
 STATISTICS_FOLDER = os.getenv('STATISTICS_FOLDER')
 STATISTICS_FILE = os.getenv('STATISTICS_FILE')
 
-# Обновленные настройки типов файлов
 ALLOWED_FILE_TYPES = {
     'image': {
         'mime_types': ['image/jpeg', 'image/png', 'image/gif'],
@@ -22,9 +21,13 @@ ALLOWED_FILE_TYPES = {
         'description': 'Изображения'
     },
     'document': {
-        'mime_types': ['application/pdf', 'application/msword',
-                      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-        'extensions': ['.pdf', '.doc', '.docx'],
+        'mime_types': [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'text/plain'  # Добавлен MIME-тип для txt файлов
+        ],
+        'extensions': ['.pdf', '.doc', '.docx', '.txt'],  # Добавлено расширение .txt
         'max_size_mb': 10,
         'description': 'Документы'
     },
@@ -42,7 +45,7 @@ ALLOWED_FILE_TYPES = {
         'description': 'Видео'
     },
     'jwpub': {
-        'mime_types': ['application/jwpub', 'application/octet-stream'],  # octet-stream для общего случая
+        'mime_types': ['application/jwpub', 'application/octet-stream'],
         'extensions': ['.jwpub'],
         'max_size_mb': 5,
         'description': 'JWPUB публикации'

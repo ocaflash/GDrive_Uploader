@@ -139,9 +139,7 @@ class GoogleDriveService:
         except HttpError as error:
             logger.error(f"Ошибка при добавлении статистики: {error}")
             if error.resp.status == 401:
-                # Попытка обновить учетные данные
                 self.refresh_credentials()
-                # Повторная попытка добавления статистики
                 self.sheets_service.spreadsheets().values().append(
                     spreadsheetId=sheet_id,
                     range='A1',
@@ -177,7 +175,6 @@ class GoogleDriveService:
 
     def delete_folder_contents(self, folder_id):
         try:
-            # Get all files and folders in the specified folder
             results = self.drive_service.files().list(
                 q=f"'{folder_id}' in parents",
                 fields="files(id, name, mimeType)"
@@ -186,10 +183,7 @@ class GoogleDriveService:
 
             for item in items:
                 if item['mimeType'] == 'application/vnd.google-apps.folder':
-                    # Recursively delete contents of subfolders
                     self.delete_folder_contents(item['id'])
-
-                # Delete the item
                 self.drive_service.files().delete(fileId=item['id']).execute()
                 logger.info(f"Deleted item: {item['name']}")
 
