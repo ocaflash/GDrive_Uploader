@@ -141,23 +141,37 @@ async def handle_file(update: Update, context) -> None:
             file_type_category = 'image'
             file_extension = '.jpg'
             file_name = f"image_{len(context.user_data.get('files', [])) + 1}{file_extension}"
+
         elif update.message.video:
             file = update.message.video
             file_type_category = 'video'
             original_file_name = file.file_name
             file_extension = os.path.splitext(original_file_name)[1] if original_file_name else '.mp4'
             file_name = original_file_name or f"video_{len(context.user_data.get('files', [])) + 1}{file_extension}"
+            logger.info(f"Видео: {file_name}, размер: {file.file_size / (1024 * 1024):.2f} МБ")
+
+        elif update.message.audio:
+            file = update.message.audio
+            file_type_category = 'audio'
+            original_file_name = file.file_name
+            file_extension = os.path.splitext(original_file_name)[1] if original_file_name else '.mp3'
+            file_name = original_file_name or f"audio_{len(context.user_data.get('files', [])) + 1}{file_extension}"
+
+
+
         elif update.message.document:
             file = update.message.document
             original_file_name = file.file_name
-            file_extension = os.path.splitext(original_file_name)[1] if original_file_name else ''
+            file_extension = os.path.splitext(original_file_name)[1].lower() if original_file_name else ''
             mime_type = file.mime_type or 'application/octet-stream'
-            file_type_category = get_file_type_category(mime_type, file_extension)
-            file_name = original_file_name
 
-        if not file:
-            await update.message.reply_text('Ошибка: файл не найден.')
-            return
+            if file_extension in ['.mp4', '.mov', '.avi', '.mkv'] or mime_type in ALLOWED_FILE_TYPES['video'][
+                'mime_types']:
+                file_type_category = 'video'
+                file_name = original_file_name or f"video_{len(context.user_data.get('files', [])) + 1}{file_extension}"
+            else:
+                file_type_category = get_file_type_category(mime_type, file_extension)
+                file_name = original_file_name
 
         if not file_type_category:
             current_file = {
@@ -294,7 +308,6 @@ async def handle_folder_selection(update: Update, context) -> None:
         )
         await query.edit_message_text(text=progress_message)
 
-        # Создание временного файла с комментарием
         comment_path = os.path.join(os.getcwd(), comment['filename'])
         with open(comment_path, 'w', encoding='utf-8') as f:
             f.write(comment['content'])
@@ -366,7 +379,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
 
     application.add_handler(MessageHandler(
-        filters.PHOTO | filters.VIDEO | filters.Document.ALL, handle_file
+        filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.Document.ALL, handle_file
     ))
     application.add_handler(CallbackQueryHandler(handle_folder_selection))
 
