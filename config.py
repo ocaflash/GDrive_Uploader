@@ -25,9 +25,9 @@ ALLOWED_FILE_TYPES = {
             'application/pdf',
             'application/msword',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'text/plain'  # Добавлен MIME-тип для txt файлов
+            'text/plain'
         ],
-        'extensions': ['.pdf', '.doc', '.docx', '.txt'],  # Добавлено расширение .txt
+        'extensions': ['.pdf', '.doc', '.docx', '.txt'],
         'max_size_mb': 10,
         'description': 'Документы'
     },
@@ -41,7 +41,7 @@ ALLOWED_FILE_TYPES = {
     'video': {
         'mime_types': ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'],
         'extensions': ['.mp4', '.mov', '.avi', '.mkv'],
-        'max_size_mb': 100,
+        'max_size_mb': 50,
         'description': 'Видео'
     },
     'audio': {
