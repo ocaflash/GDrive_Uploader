@@ -17,6 +17,7 @@ API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 SESSION_NAME = os.getenv('SESSION_NAME', 'userbot')
 
+
 ALLOWED_FILE_TYPES = {
     'image': {
         'mime_types': ['image/jpeg', 'image/png', 'image/gif'],
@@ -29,9 +30,9 @@ ALLOWED_FILE_TYPES = {
             'application/pdf',
             'application/msword',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'text/plain'  # Добавлен MIME-тип для txt файлов
+            'text/plain'
         ],
-        'extensions': ['.pdf', '.doc', '.docx', '.txt'],  # Добавлено расширение .txt
+        'extensions': ['.pdf', '.doc', '.docx', '.txt'],
         'max_size_mb': 10,
         'description': 'Документы'
     },
@@ -45,8 +46,14 @@ ALLOWED_FILE_TYPES = {
     'video': {
         'mime_types': ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'],
         'extensions': ['.mp4', '.mov', '.avi', '.mkv'],
-        'max_size_mb': 100,
+        'max_size_mb': 500,
         'description': 'Видео'
+    },
+    'audio': {
+        'mime_types': ['audio/mpeg', 'audio/ogg', 'audio/wav'],
+        'extensions': ['.mp3', '.ogg', '.wav'],
+        'max_size_mb': 50,
+        'description': 'Аудио'
     },
     'jwpub': {
         'mime_types': ['application/jwpub', 'application/octet-stream'],

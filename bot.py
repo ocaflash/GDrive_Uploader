@@ -4,8 +4,9 @@ import logging
 import mimetypes
 from datetime import timedelta
 
+import telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, CallbackQueryHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from gdrive_service import GoogleDriveService
 from config import API_TOKEN, GOOGLE_DRIVE_CREDENTIALS_FILE, ALLOWED_USERS, MAX_FILE_SIZE_MB, EXCLUDED_FOLDERS, \
     USE_ALLOWED_USERS, STATISTICS_FOLDER, STATISTICS_FILE, ALLOWED_FILE_TYPES, ADMIN_USERS
@@ -14,16 +15,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# Добавляем регистрацию MIME-типа для jwpub
 mimetypes.add_type('application/jwpub', '.jwpub')
 
 drive_service = GoogleDriveService(GOOGLE_DRIVE_CREDENTIALS_FILE)
 
 
 def get_files_word(count):
-    """
-    Возвращает слово "файл" с правильным окончанием в зависимости от числа
-    """
     if count % 100 in [11, 12, 13, 14]:
         return "файлов"
 
@@ -36,11 +33,7 @@ def get_files_word(count):
         return "файлов"
 
 def get_file_type_category(mime_type, file_extension):
-    """
-    Определяет категорию файла на основе MIME-типа и расширения
-    с дополнительной обработкой для jwpub файлов
-    """
-    # Специальная обработка для jwpub файлов
+
     if file_extension.lower() == '.jwpub':
         return 'jwpub'
 
@@ -51,14 +44,12 @@ def get_file_type_category(mime_type, file_extension):
 
 
 def format_size(size_mb):
-    """Форматирует размер файла для удобного отображения"""
     if size_mb >= 1024:
         return f"{size_mb / 1024:.1f} ГБ"
     return f"{size_mb:.1f} МБ"
 
 
 def get_allowed_files_description():
-    """Возвращает отформатированное описание разрешенных типов файлов"""
     descriptions = []
     for category, settings in ALLOWED_FILE_TYPES.items():
         max_size = format_size(settings['max_size_mb'])
@@ -67,9 +58,6 @@ def get_allowed_files_description():
     return '\n'.join(descriptions)
 
 def get_comments_word(count):
-    """
-    Возвращает слово "комментарий" с правильным окончанием в зависимости от числа
-    """
     if count % 100 in [11, 12, 13, 14]:
         return "комментариев"
 
@@ -111,7 +99,7 @@ async def send_folder_buttons(update: Update, context) -> None:
             keyboard.append(row)
             row = []
 
-    if row:  # Если осталась одна кнопка после последней итерации
+    if row:
         keyboard.append(row)
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -132,7 +120,6 @@ async def handle_file(update: Update, context) -> None:
         file_extension = ''
         original_file_name = None
 
-        # Проверяем наличие текстового комментария
         caption = update.message.caption
         if caption and 'comments' not in context.user_data:
             context.user_data['comments'] = []
@@ -141,11 +128,10 @@ async def handle_file(update: Update, context) -> None:
             comment = {
                 'filename': f'comment_{comment_count}.txt',
                 'content': caption,
-                'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'telegram_timestamp': update.message.date.strftime('%Y-%m-%d %H:%M:%S')
             }
             context.user_data['comments'].append(comment)
 
-        # Инициализация списков, если они еще не существуют
         if 'files' not in context.user_data:
             context.user_data['files'] = []
         if 'unsupported_files' not in context.user_data:
@@ -162,19 +148,44 @@ async def handle_file(update: Update, context) -> None:
             original_file_name = file.file_name
             file_extension = os.path.splitext(original_file_name)[1] if original_file_name else '.mp4'
             file_name = original_file_name or f"video_{len(context.user_data.get('files', [])) + 1}{file_extension}"
+            file_size_mb = file.file_size / (1024 * 1024)
+            logger.info(f"Видео: {file_name}, размер: {file_size_mb:.2f} МБ")
+            if file_size_mb > 50:  # Лимит Telegram API
+                await update.message.reply_text(
+                    "Видео превышает 50 МБ и не может быть загружено через Telegram. "
+                    "Пожалуйста, отправьте прямую ссылку на видео (например, из Google Drive или другого сервиса)."
+                )
+                return
+        elif update.message.audio:
+            file = update.message.audio
+            file_type_category = 'audio'
+            original_file_name = file.file_name
+            file_extension = os.path.splitext(original_file_name)[1] if original_file_name else '.mp3'
+            file_name = original_file_name or f"audio_{len(context.user_data.get('files', [])) + 1}{file_extension}"
         elif update.message.document:
             file = update.message.document
             original_file_name = file.file_name
-            file_extension = os.path.splitext(original_file_name)[1] if original_file_name else ''
+            file_extension = os.path.splitext(original_file_name)[1].lower() if original_file_name else ''
             mime_type = file.mime_type or 'application/octet-stream'
-            file_type_category = get_file_type_category(mime_type, file_extension)
-            file_name = original_file_name
+            logger.info(f"Документ: {original_file_name}, размер: {file.file_size / (1024 * 1024):.2f} МБ, MIME: {mime_type}")
+            if file_extension in ['.mp4', '.mov', '.avi', '.mkv'] or mime_type in ALLOWED_FILE_TYPES['video']['mime_types']:
+                file_type_category = 'video'
+                file_name = original_file_name or f"video_{len(context.user_data.get('files', [])) + 1}{file_extension}"
+                file_size_mb = file.file_size / (1024 * 1024)
+                if file_size_mb > 50:  # Лимит Telegram API
+                    await update.message.reply_text(
+                        "Видео превышает 50 МБ и не может быть загружено через Telegram. "
+                        "Пожалуйста, отправьте прямую ссылку на видео (например, из Google Drive или другого сервиса)."
+                    )
+                    return
+            else:
+                file_type_category = get_file_type_category(mime_type, file_extension)
+                file_name = original_file_name
 
         if not file:
             await update.message.reply_text('Ошибка: файл не найден.')
             return
 
-        # Проверка типа файла и добавление в соответствующий список
         if not file_type_category:
             current_file = {
                 'name': original_file_name or 'Неизвестный файл',
@@ -203,29 +214,21 @@ async def handle_file(update: Update, context) -> None:
                 if not any(f['file_name'] == file_name for f in context.user_data['files']):
                     context.user_data['files'].append(current_file)
 
-        # Сценарий 1: Если нет поддерживаемых файлов (все файлы неподдерживаемые)
         if not context.user_data['files'] and context.user_data['unsupported_files']:
             unsupported_message = "Следующие файлы не поддерживаются:\n"
             for file in context.user_data['unsupported_files']:
                 unsupported_message += f"• {file['name']} - {file['reason']}\n"
-
-            # unsupported_message += f"\nПожалуйста, загрузите файлы следующих типов:\n{get_allowed_files_description()}"
-
-            # Очищаем все списки
             context.user_data['files'] = []
             context.user_data['unsupported_files'] = []
             context.user_data['comments'] = []
-
             await update.message.reply_text(unsupported_message)
             return
 
-        # Сценарий 2: Если есть хотя бы один поддерживаемый файл
         if context.user_data['files']:
             current_time = datetime.datetime.now()
             if 'last_message_time' not in context.user_data or \
                     (current_time - context.user_data['last_message_time']).total_seconds() > 5:
                 context.user_data['last_message_time'] = current_time
-                # Показываем кнопки выбора папки (неподдерживаемые файлы будут показаны в итоговом сообщении)
                 await send_folder_buttons(update, context)
 
     except Exception as e:
@@ -242,6 +245,10 @@ async def handle_folder_selection(update: Update, context) -> None:
     files = context.user_data.get('files', [])
     unsupported_files = context.user_data.get('unsupported_files', [])
     comments = context.user_data.get('comments', [])
+
+    def create_progress_bar(current, total, width=20):
+        progress = int(width * current / total)
+        return f"[{'■' * progress}{'□' * (width - progress)}]"
 
     if not files and not unsupported_files:
         await query.edit_message_text(text='Ошибка: Файлы не найдены. Пожалуйста, загрузите файлы перед выбором папки.')
@@ -263,20 +270,14 @@ async def handle_folder_selection(update: Update, context) -> None:
 
     date_folder_name = datetime.datetime.now() + timedelta(hours=3)
     date_folder_name_str = date_folder_name.strftime("%d-%m-%Y")
-
     date_folder_id = drive_service.find_folder_id_by_name(date_folder_name_str, folder_id)
     if date_folder_id is None:
         date_folder_id = drive_service.create_folder(folder_id, date_folder_name_str)
-
-    def create_progress_bar(current, total, width=20):
-        progress = int(width * current / total)
-        return f"[{'■' * progress}{'□' * (width - progress)}]"
 
     uploaded_files = []
     total_files = len(files) + len(comments)
     current_file = 0
 
-    # Загрузка файлов
     for file_info in files:
         current_file += 1
         progress_bar = create_progress_bar(current_file - 0.5, total_files)
@@ -290,10 +291,20 @@ async def handle_folder_selection(update: Update, context) -> None:
         )
         await query.edit_message_text(text=progress_message)
 
-        photo_file = await context.bot.get_file(file_info['file_id'])
-        photo_file_path = os.path.join(os.getcwd(), file_info['file_name'])
-
-        await photo_file.download_to_drive(photo_file_path)
+        if 'file_id' in file_info:
+            try:
+                photo_file = await context.bot.get_file(file_info['file_id'])
+                photo_file_path = os.path.join(os.getcwd(), file_info['file_name'])
+                await photo_file.download_to_drive(photo_file_path)
+            except telegram.error.BadRequest as e:
+                logger.error(f"Ошибка при скачивании файла {file_info['file_name']}: {e}")
+                await query.edit_message_text(
+                    text=f"Файл {file_info['file_name']} слишком большой (>50 МБ). "
+                         f"Пожалуйста, отправьте прямую ссылку на файл."
+                )
+                return
+        else:  # Файлы из URL
+            photo_file_path = file_info['file_path']
 
         try:
             drive_service.upload_file(photo_file_path, date_folder_id, file_info['file_name'])
@@ -304,7 +315,7 @@ async def handle_folder_selection(update: Update, context) -> None:
             await query.edit_message_text(text=f'Ошибка при загрузке файла {file_info["file_name"]}.')
             return
 
-    # Загрузка комментариев
+    # Загрузка комментариев (без изменений)
     for comment in comments:
         current_file += 1
         progress_bar = create_progress_bar(current_file - 0.5, total_files)
@@ -318,7 +329,6 @@ async def handle_folder_selection(update: Update, context) -> None:
         )
         await query.edit_message_text(text=progress_message)
 
-        # Создание временного файла с комментарием
         comment_path = os.path.join(os.getcwd(), comment['filename'])
         with open(comment_path, 'w', encoding='utf-8') as f:
             f.write(comment['content'])
@@ -330,7 +340,7 @@ async def handle_folder_selection(update: Update, context) -> None:
         except Exception as e:
             logger.error(f"Ошибка при загрузке комментария {comment['filename']}: {e}")
 
-    # Формируем итоговое сообщение
+    # Формирование итогового сообщения (без изменений)
     total_uploaded = len(uploaded_files)
     total_files = len(files) + len(context.user_data.get('unsupported_files', []))
     total_comments = len(context.user_data.get('comments', []))
@@ -361,7 +371,7 @@ async def handle_folder_selection(update: Update, context) -> None:
 
     await query.edit_message_text(text=success_message)
 
-    # Отправка статистики админам
+    # Отправка статистики админам и запись в Google Sheets (без изменений)
     if ADMIN_USERS:
         for admin_id in ADMIN_USERS:
             try:
@@ -369,7 +379,6 @@ async def handle_folder_selection(update: Update, context) -> None:
             except Exception as e:
                 logger.error(f"Ошибка при отправке статистики админу {admin_id}: {e}")
 
-    # Добавляем запись в статистику
     stats_folder_id = drive_service.find_folder_id_by_name(STATISTICS_FOLDER, upload_folder_id)
     if not stats_folder_id:
         stats_folder_id = drive_service.create_folder(upload_folder_id, STATISTICS_FOLDER)
@@ -383,19 +392,19 @@ async def handle_folder_selection(update: Update, context) -> None:
         uploaded_files
     )
 
-    # Очищаем данные пользователя после успешной загрузки
+    # Очистка данных
     context.user_data['files'] = []
     context.user_data['unsupported_files'] = []
     context.user_data['comments'] = []
+
 
 
 def main() -> None:
     application = Application.builder().token(API_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
 
-    # Updated filter syntax for newer python-telegram-bot versions
     application.add_handler(MessageHandler(
-        filters.PHOTO | filters.VIDEO | filters.Document.ALL, handle_file
+        filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.Document.ALL, handle_file
     ))
     application.add_handler(CallbackQueryHandler(handle_folder_selection))
 

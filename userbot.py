@@ -6,7 +6,7 @@ from telethon import TelegramClient, events
 from telethon.tl.custom import Button
 from gdrive_service import GoogleDriveService
 from config import API_ID, API_HASH, SESSION_NAME, GOOGLE_DRIVE_CREDENTIALS_FILE
-from config import ALLOWED_USERS, MAX_FILE_SIZE_MB, EXCLUDED_FOLDERS, USE_ALLOWED_USERS, STATISTICS_FOLDER, STATISTICS_FILE, ALLOWED_FILE_TYPES, ADMIN_USERS
+from config import ALLOWED_USERS, EXCLUDED_FOLDERS, USE_ALLOWED_USERS, ALLOWED_FILE_TYPES
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -71,10 +71,10 @@ welcome_message = (
     "Пришлите мне файлы, и я помогу загрузить их в нужную папку."
 )
 
-async def send_welcome(event, user_id):
+async def send_welcome(event):
     await event.respond(welcome_message)
 
-async def send_folder_buttons(event, user_id):
+async def send_folder_buttons(event):
     upload_folder_id = gdrive.find_folder_id_by_name('Upload')
     if not upload_folder_id:
         await event.respond('Ошибка: папка "Upload" не найдена в Google Drive.')
@@ -94,8 +94,7 @@ async def send_folder_buttons(event, user_id):
 
 @client.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
-    user_id = event.sender_id
-    await send_welcome(event, user_id)
+    await send_welcome(event)
 
 @client.on(events.NewMessage(incoming=True))
 async def file_handler(event):
@@ -138,9 +137,9 @@ async def file_handler(event):
         await event.download_media(file=file_path)
         data['files'].append({'file_path': file_path, 'file_name': file_name, 'type': file_type_category, 'size_mb': file_size_mb})
         await event.respond(f'Файл {file_name} сохранён. Теперь выберите папку для загрузки.')
-        await send_folder_buttons(event, user_id)
+        await send_folder_buttons(event)
 
-@client.on(events.CallbackQuery)
+@client.on(events.CallbackQuery())
 async def folder_selection_handler(event):
     user_id = event.sender_id
     data = user_data.get(user_id, {'files': [], 'unsupported_files': [], 'comments': []})
